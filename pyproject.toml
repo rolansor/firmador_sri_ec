@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "firmador-sri-ec"
+version = "1.0.0"
+description = "Firmador XAdES-BES nativo en Python para comprobantes electronicos del SRI Ecuador"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Rolando Sornoza", email = "rolansor@gmail.com"}
+]
+keywords = ["xades", "sri", "ecuador", "factura", "electronica", "firma", "digital", "xml", "signature"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 2",
+    "Programming Language :: Python :: 2.7",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Text Processing :: Markup :: XML",
+]
+requires-python = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*"
+dependencies = [
+    "lxml>=4.0.0",
+    "pyOpenSSL>=19.0.0",
+    "cryptography>=2.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=4.0.0",
+    "pytest-cov>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rolansor/firmador_sri_ec"
+Repository = "https://github.com/rolansor/firmador_sri_ec"
+Issues = "https://github.com/rolansor/firmador_sri_ec/issues"
+
+[tool.setuptools.packages.find]
+exclude = ["tests*", "examples*"]

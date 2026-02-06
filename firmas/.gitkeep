@@ -1,0 +1,12 @@
+# Carpeta para certificados .p12
+#
+# IMPORTANTE: Los certificados .p12 están en .gitignore
+# y NO deben ser commiteados al repositorio.
+#
+# Para usar el firmador:
+# 1. Copia tu certificado .p12 a esta carpeta
+# 2. Configura la variable de entorno CERT_PASSWORD
+#
+# Ejemplo:
+#   export CERT_PASSWORD="tu_clave"
+#   python examples/ejemplo_basico.py

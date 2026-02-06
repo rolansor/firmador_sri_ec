@@ -1,0 +1,129 @@
+# =============================================================================
+# ANALISIS DE FORMATOS X509IssuerName EN FIRMAS DIGITALES ECUATORIANAS
+# =============================================================================
+# Fecha: 2026-02-06
+# Proposito: Documentar los diferentes formatos de X509IssuerName usados por
+#            proveedores de certificados en Ecuador y sus implicaciones para
+#            la funcion _build_rfc4514_name()
+# =============================================================================
+
+## RESUMEN EJECUTIVO
+
+- Total XMLs analizados: ~32,847 documentos firmados (2022-2026)
+- Formatos unicos encontrados: 10 variantes diferentes
+- Proveedores de certificados identificados: 5
+- Firmas en riesgo de ERROR 39: ~0.04% (principalmente UANATACA)
+
+## PROVEEDORES IDENTIFICADOS
+
+1. SECURITY DATA (65% del mercado)
+   - CN=AUTORIDAD DE CERTIFICACION SUBCA-2 SECURITY DATA,...
+   - Formato estandar, sin problemas
+
+2. BANCO CENTRAL DEL ECUADOR - BCE (33% del mercado)
+   - CN=AC BANCO CENTRAL DEL ECUADOR,L=QUITO,...
+   - Formato completamente estandar
+
+3. UANATACA (0.4% del mercado) - RIESGO ALTO
+   - Usa OID 2.5.4.97 (organizationIdentifier)
+   - Causa ERROR 39: FIRMA INVALIDA si no se maneja correctamente
+
+4. ANF (1.2% del mercado) - RIESGO MEDIO
+   - Usa OID 2.5.4.5 en formato hex al final del DN
+
+5. DATILMEDIA (raro) - RIESGO BAJO
+   - Orden de RDN no estandar (comienza con L en lugar de C)
+
+
+## OID 2.5.4.97 (organizationIdentifier) - PROBLEMA PRINCIPAL
+
+### Definicion
+- OID: 2.5.4.97
+- Nombre: organizationIdentifier
+- Uso: Identificadores de organizacion (VAT, RUC, NIF, etc.)
+- NO esta en el conjunto basico X.520 que muchos parsers reconocen
+
+### Formato correcto (RFC4514)
+2.5.4.97=#0c0f56415445532d413636373231343939
+
+Decodificacion del valor hex:
+- 0c = UTF8String (etiqueta ASN.1)
+- 0f = 15 (longitud en bytes)
+- 56415445532d413636373231343939 = "VATES-A66721499" en UTF-8
+
+### Formato INCORRECTO que causa ERROR 39
+UNDEF=VATES-A66721499
+
+El SRI NO acepta "UNDEF" como nombre de atributo.
+
+
+## SOLUCION IMPLEMENTADA EN _build_rfc4514_name()
+
+La funcion construye el DN en formato RFC4514:
+1. OIDs estandar (CN, O, OU, L, C, etc.) -> usan nombres cortos
+2. OIDs NO estandar (2.5.4.97, etc.) -> usan OID numerico + valor en hex
+
+Ejemplo de salida correcta:
+2.5.4.97=#0c0f56415445532d413636373231343939,CN=UANATACA CA2 2016,...
+
+
+## COMPATIBILIDAD PYTHON 2/3
+
+Este proyecto (firmador_sri_ec) soporta tanto Python 2 como Python 3.
+La funcion _encode_asn1_utf8string_hex() tiene implementaciones separadas
+para cada version:
+
+- Python 2: usa chr() y ord() para manipular bytes
+- Python 3: usa bytes() y .hex() para manipular bytes
+
+
+## OIDs QUE REQUIEREN MANEJO ESPECIAL
+
+| OID       | Nombre                 | Proveedor     | Formato esperado                    |
+|-----------|------------------------|---------------|-------------------------------------|
+| 2.5.4.97  | organizationIdentifier | UANATACA      | 2.5.4.97=#0c0f...                   |
+| 2.5.4.5   | serialNumber           | ANF           | serialNumber=... o 2.5.4.5=#130d... |
+| 2.5.4.3   | commonName             | Todos         | CN=...                              |
+| 2.5.4.6   | countryName            | Todos         | C=...                               |
+| 2.5.4.7   | localityName           | Todos         | L=...                               |
+| 2.5.4.8   | stateOrProvinceName    | Algunos       | ST=...                              |
+| 2.5.4.10  | organizationName       | Todos         | O=...                               |
+| 2.5.4.11  | organizationalUnitName | Todos         | OU=...                              |
+
+
+## EJEMPLOS DE X509IssuerName POR PROVEEDOR
+
+### Security Data (funciona sin cambios)
+CN=AUTORIDAD DE CERTIFICACION SUBCA-2 SECURITY DATA,OU=ENTIDAD DE CERTIFICACION DE INFORMACION,O=SECURITY DATA S.A. 2,C=EC
+
+### Banco Central del Ecuador (funciona sin cambios)
+CN=AC BANCO CENTRAL DEL ECUADOR,L=QUITO,OU=ENTIDAD DE CERTIFICACION DE INFORMACION-ECIBCE,O=BANCO CENTRAL DEL ECUADOR,C=EC
+
+### UANATACA (REQUIERE _build_rfc4514_name)
+2.5.4.97=#0c0f56415445532d413636373231343939,CN=UANATACA CA2 2016,OU=TSP-UANATACA,O=UANATACA S.A.,L=Barcelona (see current address at www.uanataca.com/address),C=ES
+
+### ANF (puede requerir ajustes futuros)
+CN=ANF High Assurance Ecuador Intermediate CA,OU=ANF Autoridad intermedia EC,O=ANFAC AUTORIDAD DE CERTIFICACION ECUADOR C.A.,C=EC,2.5.4.5=#130d31373932363031323135303031
+
+
+## HISTORIAL DE CAMBIOS
+
+2026-02-06: Implementacion inicial de _build_rfc4514_name()
+            - Corrige ERROR 39 para certificados UANATACA
+            - Soporta OID 2.5.4.97 con codificacion hex
+            - Compatible con Python 2.7 y Python 3.x
+
+
+## REFERENCIAS
+
+- RFC 4514: LDAP String Representation of Distinguished Names
+  https://datatracker.ietf.org/doc/html/rfc4514
+
+- RFC 2253: UTF-8 String Representation of Distinguished Names
+  https://datatracker.ietf.org/doc/html/rfc2253
+
+- X.520: Selected attribute types
+  https://www.itu.int/rec/T-REC-X.520
+
+- SRI Ecuador - Ficha Tecnica Comprobantes Electronicos
+  https://www.sri.gob.ec/

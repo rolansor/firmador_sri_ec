@@ -100,25 +100,154 @@ class CertificateManager(object):
     def get_issuer_name(self):
         """
         Obtiene el Distinguished Name del emisor del certificado
-        en formato RFC2253.
+        en formato RFC4514 (compatible con RFC2253).
+
+        El SRI requiere que el IssuerName use el formato RFC4514 exacto:
+        - OIDs no estándar como 2.5.4.97 deben mantener el formato OID numérico
+        - Los valores de OIDs desconocidos deben estar en hexadecimal (#hex)
+
+        IMPORTANTE: El SRI valida que el formato sea exactamente RFC4514.
+        Usar "UNDEF" o nombres alternativos causa ERROR 39: FIRMA INVALIDA.
+
+        Ejemplo de formato correcto para UANATACA:
+        2.5.4.97=#0c0f56415445532d413636373231343939,CN=UANATACA CA2 2016,...
 
         Returns:
-            str: DN del emisor
+            str: DN del emisor en formato RFC4514
         """
-        issuer = self._certificate.get_issuer()
-        components = issuer.get_components()
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
 
-        # Construir DN en orden inverso (RFC2253)
-        dn_parts = []
-        for name, value in reversed(components):
-            # name y value son bytes
-            if isinstance(name, bytes):
-                name = name.decode('utf-8')
-            if isinstance(value, bytes):
-                value = value.decode('utf-8')
-            dn_parts.append('{}={}'.format(name, value))
+        cert_der = self.get_certificate_der()
+        cert_crypto = x509.load_der_x509_certificate(cert_der, default_backend())
 
-        return ','.join(dn_parts)
+        # Construir el DN manualmente en formato RFC4514
+        return self._build_rfc4514_name(cert_crypto.issuer)
+
+    def _build_rfc4514_name(self, name):
+        """
+        Construye un Distinguished Name en formato RFC4514.
+
+        RFC4514 especifica:
+        - Atributos estándar usan nombres cortos (CN, O, OU, L, C, etc.)
+        - Atributos no estándar usan OID numérico (ej: 2.5.4.97)
+        - Valores de atributos no estándar van en hexadecimal (#hex)
+        - Los RDNs se listan en orden inverso (del más específico al más general)
+
+        Args:
+            name: objeto x509.Name de cryptography
+
+        Returns:
+            str: DN en formato RFC4514
+        """
+        # Mapeo de OIDs estándar a nombres cortos según RFC4514
+        oid_names = {
+            '2.5.4.3': 'CN',    # commonName
+            '2.5.4.6': 'C',     # countryName
+            '2.5.4.7': 'L',     # localityName
+            '2.5.4.8': 'ST',    # stateOrProvinceName
+            '2.5.4.9': 'STREET',  # streetAddress
+            '2.5.4.10': 'O',    # organizationName
+            '2.5.4.11': 'OU',   # organizationalUnitName
+            '2.5.4.5': 'serialNumber',  # serialNumber
+            '0.9.2342.19200300.100.1.25': 'DC',  # domainComponent
+            '0.9.2342.19200300.100.1.1': 'UID',  # userId
+        }
+
+        parts = []
+        # Iterar en orden inverso (RFC4514 requiere orden inverso)
+        for attr in reversed(list(name)):
+            oid = attr.oid.dotted_string
+            value = attr.value
+
+            if oid in oid_names:
+                # OID estándar: usar nombre corto y valor como texto
+                # Escapar caracteres especiales según RFC4514
+                escaped_value = self._escape_rfc4514_value(value)
+                parts.append('{}={}'.format(oid_names[oid], escaped_value))
+            else:
+                # OID no estándar: usar OID numérico y valor en hexadecimal
+                # El valor debe codificarse como ASN.1 UTF8String (#0c...)
+                hex_value = self._encode_asn1_utf8string_hex(value)
+                parts.append('{}=#{}'.format(oid, hex_value))
+
+        return ','.join(parts)
+
+    def _escape_rfc4514_value(self, value):
+        """
+        Escapa caracteres especiales en un valor RFC4514.
+
+        Caracteres que requieren escape: , + " \ < > ;
+        Espacios al inicio o final también requieren escape.
+
+        Args:
+            value: Valor del atributo (string)
+
+        Returns:
+            str: Valor escapado
+        """
+        # Caracteres que requieren escape con backslash
+        special_chars = [',', '+', '"', '\\', '<', '>', ';']
+
+        result = []
+        for i, char in enumerate(value):
+            if char in special_chars:
+                result.append('\\')
+                result.append(char)
+            elif char == ' ' and (i == 0 or i == len(value) - 1):
+                # Espacios al inicio o final
+                result.append('\\')
+                result.append(char)
+            elif char == '#' and i == 0:
+                # # al inicio
+                result.append('\\')
+                result.append(char)
+            else:
+                result.append(char)
+
+        return ''.join(result)
+
+    def _encode_asn1_utf8string_hex(self, value):
+        """
+        Codifica un valor como ASN.1 UTF8String en hexadecimal.
+
+        El formato es: 0c + longitud + valor_utf8_en_hex
+        Donde 0c es el tag para UTF8String
+
+        Args:
+            value: Valor a codificar (string)
+
+        Returns:
+            str: Valor codificado en hexadecimal (sin el # inicial)
+        """
+        from .compat import ensure_bytes
+
+        # Codificar valor a UTF-8
+        value_bytes = ensure_bytes(value)
+
+        # Tag UTF8String = 0x0c
+        tag = 0x0c
+        length = len(value_bytes)
+
+        # Construir el valor ASN.1
+        if PY2:
+            if length < 128:
+                asn1_bytes = chr(tag) + chr(length) + value_bytes
+            elif length < 256:
+                asn1_bytes = chr(tag) + chr(0x81) + chr(length) + value_bytes
+            else:
+                asn1_bytes = chr(tag) + chr(0x82) + chr(length >> 8) + chr(length & 0xff) + value_bytes
+            # Convertir a hexadecimal
+            return ''.join('{:02x}'.format(ord(b)) for b in asn1_bytes)
+        else:
+            if length < 128:
+                asn1_bytes = bytes([tag, length]) + value_bytes
+            elif length < 256:
+                asn1_bytes = bytes([tag, 0x81, length]) + value_bytes
+            else:
+                asn1_bytes = bytes([tag, 0x82, length >> 8, length & 0xff]) + value_bytes
+            # Convertir a hexadecimal
+            return asn1_bytes.hex()
 
     def get_serial_number(self):
         """
